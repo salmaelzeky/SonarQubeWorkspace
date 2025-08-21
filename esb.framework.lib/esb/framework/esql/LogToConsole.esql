@@ -1,0 +1,51 @@
+BROKER SCHEMA esb.framework.esql
+
+
+CREATE PROCEDURE LogToConsole(IN desc CHARACTER , IN GUID CHARACTER , IN data CHARACTER)
+LANGUAGE JAVA
+EXTERNAL NAME "esb.framework.java.lib.ConsoleLog.log";
+
+CREATE FUNCTION LogMsg(IN desc CHARACTER , IN GUID CHARACTER , IN msgRef REFERENCE)
+BEGIN
+	DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE '%' BEGIN END;
+	DECLARE otherFieldsBlobMsg BLOB;
+	DECLARE otherFieldsMsg CHAR;
+	
+	--Check if the msgRef is BLOB or not
+	IF FIELDTYPE(msgRef) <> '50331648' THEN
+		SET otherFieldsBlobMsg= ASBITSTREAM(msgRef CCSID 1208 ENCODING 815);
+	ELSE
+		SET otherFieldsBlobMsg = msgRef;
+	END IF;
+	SET otherFieldsMsg= CAST(otherFieldsBlobMsg AS CHARACTER CCSID 1208 ENCODING 815);
+	
+	--Check if input tree in JSON tree or not
+	--IF FIELDTYPE(msgRef) = '16777216' THEN
+	IF NOT STARTSWITH(otherFieldsMsg, '{') THEN
+		DECLARE ListRef ROW;
+		CREATE LASTCHILD OF ListRef DOMAIN('JSON');
+		SET ListRef.JSON.Data = msgRef;
+		MOVE msgRef TO ListRef.JSON.Data;
+		SET otherFieldsBlobMsg= ASBITSTREAM(msgRef CCSID 1208 ENCODING 815);
+		SET otherFieldsMsg= CAST(otherFieldsBlobMsg AS CHARACTER CCSID 1208 ENCODING 815);
+	END IF;
+	
+	CALL SplitLog(otherFieldsMsg);
+	IF (otherFieldsMsg IS NULL OR otherFieldsMsg = '') THEN
+		SET otherFieldsMsg= CAST(otherFieldsBlobMsg AS CHARACTER);
+	END IF;
+	CALL LogToConsole(desc,GUID,otherFieldsMsg);
+END ;
+
+CREATE FUNCTION SplitLog(IN msgRef REFERENCE) BEGIN
+	DECLARE LINE_LENGTH DECIMAL 30000;
+	DECLARE msgLength INTEGER LENGTH(msgRef);
+	DECLARE numOfLines INTEGER ROUND(msgLength / LINE_LENGTH, 0 MODE ROUND_UP);
+	DECLARE endIndex INTEGER LINE_LENGTH;
+	DECLARE I INTEGER 1;
+	WHILE I < numOfLines DO
+		SET msgRef = SUBSTRING(msgRef FROM 1 FOR endIndex) || CAST(X'0A' AS CHARACTER CCSID 1208) || SUBSTRING(msgRef FROM endIndex + 1);
+		SET endIndex = endIndex + LINE_LENGTH + 1;
+		SET I = I + 1;
+	END WHILE;
+END;

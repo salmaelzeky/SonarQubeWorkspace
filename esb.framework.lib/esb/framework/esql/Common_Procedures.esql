@@ -1,0 +1,94 @@
+BROKER SCHEMA esb.framework.esql
+
+CREATE PROCEDURE paddWithSpaces(IN valueToBePadded CHARACTER, IN desLength INTEGER)
+RETURNS CHARACTER
+BEGIN
+	WHILE LENGTH(valueToBePadded) < desLength
+		DO
+		SET valueToBePadded = valueToBePadded || ' ';
+	END WHILE;
+	RETURN valueToBePadded;
+END;
+
+CREATE PROCEDURE paddWithLeftSpaces(IN valueToBePadded CHARACTER, IN desLength INTEGER)
+RETURNS CHARACTER
+BEGIN
+	WHILE LENGTH(valueToBePadded) < desLength
+		DO
+		SET valueToBePadded = ' ' || valueToBePadded ;
+	END WHILE;
+	RETURN valueToBePadded;
+END;
+
+CREATE PROCEDURE paddWithZeros(IN valueToBePadded CHARACTER, IN desLength INTEGER)
+RETURNS CHARACTER
+BEGIN
+	WHILE LENGTH(valueToBePadded) < desLength
+		DO
+		SET valueToBePadded = '0' || valueToBePadded ;
+	END WHILE;
+	RETURN valueToBePadded;
+END;
+
+CREATE PROCEDURE getHijriDate(IN inputDate CHARACTER)
+RETURNS CHARACTER
+BEGIN
+	DECLARE hijriDate, inputDateYear CHARACTER;
+	DECLARE dateChar CHARACTER inputDate;
+	DECLARE inputDateMonth CHARACTER SUBSTRING(dateChar FROM 5 FOR 2);
+	DECLARE inputDateDay CHARACTER SUBSTRING(dateChar FROM 7 FOR 2);
+	DECLARE intDateDay INTEGER SUBSTRING(dateChar FROM 7 FOR 2);
+	--DECLARE dateDate Date CAST(dateChar AS DATE FORMAT 'yyyyMMdd');
+	IF inputDateMonth = '02' AND intDateDay > 28 THEN
+		SET inputDateYear = SUBSTRING(dateChar FROM 1 FOR 4);
+		SET hijriDate = inputDateYear || '-' || inputDateMonth || '-' || inputDateDay;
+	ELSE
+		SET hijriDate = CAST(CAST(dateChar AS DATE FORMAT 'yyyyMMdd') AS CHARACTER FORMAT 'yyyy-MM-dd');
+		--SET hijriDate = CAST(dateDate AS CHARACTER FORMAT 'yyyy-MM-dd');
+	END IF;
+	RETURN hijriDate;
+END;
+
+CREATE PROCEDURE removeAllWhiteSpacesFromTree(IN InputRoot REFERENCE, INOUT blobRef REFERENCE )
+BEGIN
+	DECLARE InputProperties REFERENCE TO InputRoot.Properties;
+	DECLARE v_carriage CHAR CAST(X'0A' AS CHAR CCSID 1208);
+	DECLARE v_line CHAR CAST(X'0D' AS CHAR CCSID 1208);
+	DECLARE v_tab CHAR CAST(X'09' AS CHAR CCSID 1208);
+
+	DECLARE FileAsBlob BLOB CAST(ASBITSTREAM(InputRoot.XMLNSC) AS BLOB CCSID 1208);
+	DECLARE FileAsString CHARACTER CAST(FileAsBlob AS CHARACTER CCSID 1208);
+	SET FileAsString = REPLACE(REPLACE(FileAsString,v_carriage, ''),'  ', '');
+	SET FileAsString = REPLACE(FileAsString,v_line, '');
+	SET FileAsString = REPLACE(FileAsString,v_tab, '');
+
+	SET FileAsBlob = CAST(FileAsString AS BLOB CCSID 819);
+    CREATE LASTCHILD OF blobRef DOMAIN('XMLNSC') PARSE(FileAsBlob,546,1208);
+END;
+
+CREATE PROCEDURE SaveBackendResponse(IN InputRoot REFERENCE,INOUT Environment REFERENCE )
+  BEGIN
+	 DECLARE OutputDataRef REFERENCE TO InputRoot.JSON.Data.data.*[>];
+     WHILE LASTMOVE(OutputDataRef) DO
+           DECLARE BackendFieldName CHARACTER FIELDNAME(OutputDataRef);
+           IF EXISTS(OutputDataRef.Item[])
+              THEN
+                 CREATE FIELD Environment.Variables.OutputData.{BackendFieldName} IDENTITY(JSON.Array){BackendFieldName};
+               	 SET Environment.Variables.OutputData.{BackendFieldName}.Item[] = OutputDataRef.Item[];
+           ELSE
+               	  CREATE FIELD Environment.Variables.OutputData.{BackendFieldName};
+               	   SET Environment.Variables.OutputData.{BackendFieldName}= OutputDataRef;
+           END IF;
+           MOVE OutputDataRef NEXTSIBLING;
+     END WHILE;
+  END;
+  
+  
+  CREATE PROCEDURE PrepareBackendHeaders(INOUT OutputRoot REFERENCE, IN Environment REFERENCE,IN CatalogName CHARACTER)
+  BEGIN
+	    SET OutputRoot.HTTPRequestHeader."Content-Type" = 'application/json';
+		SET OutputRoot.HTTPRequestHeader."Request-ID" = Environment.Variables.MsgRqHdr.RqUID;
+		SET OutputRoot.HTTPRequestHeader."X-HRSD-Client-Id" = Environment.Properties.Catalogs.Item.{CatalogName}.ClientId;
+		SET OutputRoot.HTTPRequestHeader."X-HRSD-Client-Secret" = Environment.Properties.Catalogs.Item.{CatalogName}.ClientSecret;
+	END;
+

@@ -1,0 +1,7 @@
+BROKER SCHEMA esb.framework.esql
+
+
+
+CREATE FUNCTION encrypt(IN input CHARACTER) RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "esb.framework.java.lib.EncryptField.encrypt";

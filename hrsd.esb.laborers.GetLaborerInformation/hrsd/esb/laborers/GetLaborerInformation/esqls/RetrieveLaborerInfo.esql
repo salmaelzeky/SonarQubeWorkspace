@@ -1,0 +1,202 @@
+BROKER SCHEMA hrsd.esb.laborers.GetLaborerInformation.esqls
+PATH esb.framework.esql;
+
+CREATE COMPUTE MODULE RetrieveLaborerInfo
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		SET Environment.Variables.GUID = UUIDASCHAR;
+		CALL LogMsg('Get Laborer Information - ESB Request: ', Environment.Variables.GUID, InputRoot.JSON.Data);
+
+		DECLARE InRef REFERENCE TO InputRoot.JSON.Data.getLaborerInfoRq;
+		DECLARE DatabaseQuery CHARACTER 'SELECT TOP (1) ';
+		DECLARE whiteSpace CONSTANT CHARACTER ' ';
+		DECLARE LaborerFields ROW;
+
+		IF EXISTS(InRef.applicationName[]) THEN
+			CALL LogToConsole('Get Laborer Information -  Application Name:', Environment.Variables.GUID, InRef.applicationName);
+			DECLARE ApplicationName CHARACTER TRIM(whiteSpace FROM InRef.applicationName);
+			SET LaborerFields = SELECT * FROM Environment.Properties.ApplicationNames.{ApplicationName}.LaborerFields;
+		END IF;
+		IF EXISTS(LaborerFields.*[]) THEN
+			DECLARE LaborerRef REFERENCE TO LaborerFields.Item[1];
+			WHILE LASTMOVE(LaborerRef) DO
+				SET DatabaseQuery = DatabaseQuery || LaborerRef || ' , ';
+				MOVE LaborerRef NEXTSIBLING;
+			END WHILE;
+			SET DatabaseQuery = TRIM(TRAILING ' ,' FROM DatabaseQuery) || ' FROM [MOL_Main_STG].[dbo].[Vw_AllLaborersBasicInfoV4] WHERE ' ;
+			CALL BuildDatabaseQueryDynamically(InRef, DatabaseQuery);
+		ELSE
+			SET DatabaseQuery = 'SELECT TOP (1)
+			[Id]
+			,[LaborerIdNumber]
+			,[LaborerBorderNumber]
+			,[LaborerFirstName]
+			,[LaborerSecondName]
+			,[LaborerThirdName]
+			,[LaborerFourthName]
+			,[LaborerStatusId]
+			,[LaborerStatusName]
+			,[UnifiedNumberLaborOfficeId]
+			,[UnifiedNumberSequenceNumber]
+			,[EstablishmentLaborOfficeId]
+			,[EstablishmentSequenceNumber]
+			,[EstablishmentCommercialRecordNumber]
+			,[EstablishmentStatusId]
+			,[EstablishmentName]
+			,[EstablishmentEconomicActivityId]
+			,[YearOfBirth]
+			,[OccupationId]
+			,[OccupationName]
+			,[NationalityId]
+			,[NationalityName]
+			,[GenderId]
+			,[GenderName]
+			,[SevenHundred]
+			,[Salary]
+			,[ServiceStartDate]
+			,[ServiceEndDate]
+			,[KingdomEntryDate]
+			,[PK_LaborOfficeId]
+			,[CityID]
+			,[CityName]
+			,[FK_CityId]
+			,[District]
+			,[Street]
+			,[Telephone1]
+			,[Telephone2]
+			,[email]
+			,[Fax]
+			,[ActivityName]
+			,[EstablishmentStatusDescription]
+			,[establishmentId]
+			,[ServiceEndReasonId]
+			,[ServiceEndReasonDescription]
+			,[TotalActiveLaborer]
+			,[TotalLaborers]
+			,[SaudisLaborers]
+			,[ForeignersLaborers]
+			,[InsertDate]
+			,[FK_SaudiFlagId]
+			,[BirthDate]
+			,[WorkPermitExpireDate]
+			,[WorkPermitStartDate]
+			,[LastWorkPermitId]
+			,[WorkPermitId]
+			,[BillNumber]
+			,[FK_Service_LastServiceStatusId]
+			,[StartDate]
+			,[Period]
+			,[NOT_ISSUED_WP]
+			,[EstablishmentSevenHundred]
+			,[EmployeeFirstServiceStartDate]
+			,[EntityColor]
+			,[EntitySizeId]
+			,[EntitySize]
+			FROM [MOL_Main_STG].[dbo].[Vw_AllLaborersBasicInfoV4] WHERE ';
+			CALL BuildDatabaseQueryDynamically(InRef, DatabaseQuery);
+			SET DatabaseQuery = DatabaseQuery || ';';
+		END IF;
+
+		DECLARE Retrieve ROW;
+		CALL LogToConsole('DatabaseQuery - Final', UUIDASCHAR, DatabaseQuery);
+		SET Retrieve.result[] = PASSTHRU(DatabaseQuery);
+		CREATE FIELD OutputRoot.JSON.Data.getLaborerInfoRs;
+		DECLARE OutRef REFERENCE TO OutputRoot.JSON.Data.getLaborerInfoRs;
+		IF EXISTS(Retrieve.result[]) THEN
+			SET OutRef.status.code = 'I000000';
+			SET OutRef.status.description = 'Success';
+			CREATE FIELD OutRef.laborerInfo;
+			DECLARE LaborerInfo REFERENCE TO OutRef.laborerInfo;
+			SET LaborerInfo.nationalId = Retrieve.result.LaborerIdNumber;
+			SET LaborerInfo.iqamaNumber = Retrieve.result.LaborerBorderNumber;
+			SET LaborerInfo.name.firstName = TRIM(whiteSpace FROM Retrieve.result.LaborerFirstName);
+			SET LaborerInfo.name.secondName = TRIM(whiteSpace FROM Retrieve.result.LaborerSecondName);
+			SET LaborerInfo.name.thirdName = TRIM(whiteSpace FROM Retrieve.result.LaborerThirdName);
+			SET LaborerInfo.name.lastName = TRIM(whiteSpace FROM Retrieve.result.LaborerFourthName);
+			SET LaborerInfo.yearOfBirth = Retrieve.result.YearOfBirth;
+			SET LaborerInfo.birthDate = Retrieve.result.BirthDate;
+			SET LaborerInfo.gender.id = Retrieve.result.GenderId;
+			SET LaborerInfo.gender.name = Retrieve.result.GenderName;
+			SET LaborerInfo.telephone = Retrieve.result.Telephone1;
+			SET LaborerInfo.email = Retrieve.result.email;
+			SET LaborerInfo.fax = Retrieve.result.Fax;
+			SET LaborerInfo.address = CAST(Retrieve.result.FK_CityId AS CHARACTER) || ' ' || Retrieve.result.District || ', ' || Retrieve.result.Street;
+			SET LaborerInfo.city.id = Retrieve.result.CityID;
+			SET LaborerInfo.city.name = Retrieve.result.CityName;
+
+			SET LaborerInfo.nationality.id = Retrieve.result.NationalityId;
+			SET LaborerInfo.nationality.name = Retrieve.result.NationalityName;
+			IF Retrieve.result.FK_SaudiFlagId = 1 THEN
+				SET LaborerInfo.nationality.saudiStatus = 'سعودي' ;
+			ELSEIF Retrieve.result.FK_SaudiFlagId = 2 THEN
+				SET LaborerInfo.nationality.saudiStatus = 'غير سعودي' ;
+			END IF;
+			SET LaborerInfo.occupation.id = Retrieve.result.OccupationId;
+			SET LaborerInfo.occupation.name = Retrieve.result.OccupationName;
+			SET LaborerInfo.salary = CAST(Retrieve.result.Salary AS DECIMAL);
+			SET LaborerInfo.billNumber = Retrieve.result.BillNumber;
+
+			SET LaborerInfo.firstJoiningDate = CAST(Retrieve.result.InsertDate AS CHARACTER FORMAT 'yyyy-MM-dd');
+
+			SET LaborerInfo.serviceStartDate = CAST(Retrieve.result.ServiceStartDate AS CHARACTER FORMAT 'yyyy-MM-dd');
+			SET LaborerInfo.serviceEndDate = CAST(Retrieve.result.ServiceEndDate AS CHARACTER FORMAT 'yyyy-MM-dd');
+			SET LaborerInfo.kingdomEntryDate = CAST(Retrieve.result.KingdomEntryDate AS CHARACTER FORMAT 'yyyy-MM-dd');
+
+			SET LaborerInfo.workPermit.expireDate = Retrieve.result.WorkPermitExpireDate;
+			SET LaborerInfo.workPermit.id = Retrieve.result.WorkPermitId;
+			SET LaborerInfo.workPermit.lastId = Retrieve.result.LastWorkPermitId;
+			SET LaborerInfo.laborerStatus.code = Retrieve.result.LaborerStatusId;
+			SET LaborerInfo.laborerStatus.description = Retrieve.result.LaborerStatusName;
+			SET LaborerInfo.workPermit.startDate = Retrieve.result.WorkPermitStartDate;
+
+			SET LaborerInfo.serviceEndReason.id = Retrieve.result.ServiceEndReasonId;
+			SET LaborerInfo.serviceEndReason.description = Retrieve.result.ServiceEndReasonDescription;
+			CREATE FIELD OutRef.establishmentInfo;
+			DECLARE EstablishmentInfo REFERENCE TO OutRef.establishmentInfo;
+			SET EstablishmentInfo.unifiedNationalNumber = Retrieve.result.SevenHundred;
+			SET EstablishmentInfo.unifiedNumber.laborOfficeId = Retrieve.result.UnifiedNumberLaborOfficeId;
+			SET EstablishmentInfo.unifiedNumber.sequenceNumber = Retrieve.result.UnifiedNumberSequenceNumber;
+			SET EstablishmentInfo.commercialRecordNumber = Retrieve.result.EstablishmentCommercialRecordNumber;
+			SET EstablishmentInfo.statusId = Retrieve.result.EstablishmentStatusId;
+			SET EstablishmentInfo.id = Retrieve.result.establishmentId;
+			SET EstablishmentInfo.name = Retrieve.result.EstablishmentName;
+			SET EstablishmentInfo.economicActivityId = Retrieve.result.EstablishmentEconomicActivityId;
+			SET EstablishmentInfo.activityName = Retrieve.result.ActivityName;
+			SET EstablishmentInfo.statusDescription = Retrieve.result.EstablishmentStatusDescription;
+		ELSE
+			THROW USER EXCEPTION VALUES('E260004');
+		END IF;
+		CALL LogMsg('Get Laborer Information - ESB Response: ', Environment.Variables.GUID, OutputRoot.JSON.Data);
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE BuildDatabaseQueryDynamically (IN InRef REFERENCE, INOUT DatabaseQuery CHARACTER )
+	BEGIN
+		IF InRef.identifierType = 'BorderNumber' THEN
+			SET DatabaseQuery = DatabaseQuery || '[LaborerBorderNumber] = ''' || InRef.identifier || '''';
+		ELSEIF InRef.identifierType = 'IdNumber' THEN
+			SET DatabaseQuery = DatabaseQuery || '[LaborerIdNumber] = ''' || InRef.identifier || '''';
+		END IF;
+
+		IF EXISTS(InRef.birthDate[]) THEN
+			SET DatabaseQuery = DatabaseQuery || ' AND [BirthDate] = '
+			|| '''' || CAST(CAST(InRef.birthDate AS DATE) AS CHARACTER FORMAT 'yyyy-MM-dd HH:mm:ss.SSS') || '''';
+		END IF;
+
+		IF EXISTS(InRef.unifiedNationalNumber[]) THEN
+			SET DatabaseQuery = DatabaseQuery || ' AND [SevenHundred] = ''' || CAST(InRef.unifiedNationalNumber AS CHARACTER) || ''';';
+		ELSEIF EXISTS(InRef.commercialRecordNumber[]) THEN
+			SET DatabaseQuery = DatabaseQuery || ' AND [EstablishmentCommercialRecordNumber] = '''
+			|| InRef.commercialRecordNumber || ''';';
+
+		ELSEIF EXISTS(InRef.fileNumberIn.sequenceNumber[]) AND EXISTS(InRef.fileNumberIn.laborerOfficeId[]) THEN
+			SET DatabaseQuery = DatabaseQuery || ' AND [EstablishmentLaborOfficeId] = '
+			|| InRef.fileNumberIn.laborerOfficeId || ' AND [EstablishmentSequenceNumber] = ' ||
+			InRef.fileNumberIn.sequenceNumber || ';';
+
+		ELSEIF EXISTS(InRef.establishmentId[]) THEN
+			SET DatabaseQuery = DatabaseQuery || ' AND [establishmentId] = ' || InRef.establishmentId || ';';
+		END IF;
+	END;
+
+END MODULE;
